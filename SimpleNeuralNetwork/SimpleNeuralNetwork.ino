@@ -1,6 +1,7 @@
 #define NumberOf(arg) ((unsigned int) (sizeof (arg) / sizeof (arg [0])))
-#define _2_OPTIMIZE 0B00000000
+#define _2_OPTIMIZE 0B00001000
 #define _1_OPTIMIZE 0B00010000
+#define _2_OPTIMIZE 0B01000000 // NO_BIAS
 
 #include <NeuralNetwork.h>
 
@@ -114,6 +115,6 @@ void loop() {
     Serial.println("%");
     Serial.print("Test Set MSE: ");
     Serial.println(avgMSE, 6);
-    
+    NN ->print();
     while(true); // Stop execution
 }
