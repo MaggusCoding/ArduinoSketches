@@ -1,120 +1,117 @@
-#define NumberOf(arg) ((unsigned int) (sizeof (arg) / sizeof (arg [0])))
-#define _2_OPTIMIZE 0B00001000
-#define _1_OPTIMIZE 0B00010000
-#define _2_OPTIMIZE 0B01000000 // NO_BIAS
+#include "arduinoFFT.h"
+#include <Arduino_LSM9DS1.h>
 
-#include <NeuralNetwork.h>
+// FFT constants
+#define SAMPLES 256
+#define SAMPLING_FREQ 100
+#define SAMPLING_PERIOD_MS (1000/SAMPLING_FREQ)
+#define FEATURE_BINS 8
+#define NUM_FEATURES (FEATURE_BINS + 3)  // Frequency bins + statistical features
 
-// Global variables
-NeuralNetwork *NN;  
-float *output;      
+// Create FFT object
+ArduinoFFT<double> FFT;
 
-const unsigned int layers[] = {6, 8, 1};
+// Arrays for FFT calculations
+double vReal[SAMPLES];
+double vImag[SAMPLES];
 
-// Training data
-const float inputs[12][6] = {
-    {0.1, 0.2, 0.3, 0.1, 0.1, 0.1},  // Normal 
-    {0.8, 0.7, 0.9, 0.8, 0.7, 0.9},  // Suspicious
-    {0.2, 0.3, 0.2, 0.2, 0.3, 0.2},  // Normal
-    {0.9, 0.8, 0.9, 0.7, 0.8, 0.7},  // Suspicious
-    {0.1, 0.1, 0.2, 0.3, 0.2, 0.1},  // Normal
-    {0.7, 0.9, 0.8, 0.9, 0.7, 0.8},  // Suspicious
-    {0.3, 0.2, 0.1, 0.2, 0.1, 0.3},  // Normal
-    {0.8, 0.9, 0.7, 0.8, 0.9, 0.7},  // Suspicious
-    {0.2, 0.1, 0.3, 0.1, 0.2, 0.2},  // Normal
-    {0.9, 0.7, 0.8, 0.9, 0.8, 0.9},  // Suspicious
-    {0.1, 0.3, 0.1, 0.2, 0.3, 0.1},  // Normal
-    {0.7, 0.8, 0.9, 0.7, 0.9, 0.8}   // Suspicious
-};
+// Feature array
+float features[NUM_FEATURES];
+unsigned long millisOld;
 
-const float expectedOutput[12][1] = {
-    {0}, {1}, {0}, {1}, {0}, {1}, 
-    {0}, {1}, {0}, {1}, {0}, {1}
-};
-
-// Test data
-const float testInputs[6][6] = {
-    {0.15, 0.25, 0.35, 0.15, 0.15, 0.15},  // Should be normal
-    {0.85, 0.75, 0.85, 0.75, 0.75, 0.85},  // Should be suspicious
-    {0.25, 0.35, 0.25, 0.25, 0.35, 0.25},  // Should be normal
-    {0.75, 0.85, 0.75, 0.85, 0.75, 0.85},  // Should be suspicious
-    {0.15, 0.15, 0.25, 0.35, 0.25, 0.15},  // Should be normal
-    {0.85, 0.95, 0.85, 0.75, 0.85, 0.75}   // Should be suspicious
-};
-
-const float testExpectedOutput[6][1] = {
-    {0}, {1}, {0}, {1}, {0}, {1}
-};
+// Frequency bands (Hz)
+const float freqBands[FEATURE_BINS + 1] = {0, 5, 10, 15, 20, 25, 30, 40, 50};
 
 void setup() {
-    Serial.begin(9600);
-    while(!Serial);
-    
-    Serial.println("Starting training...");
-    
-    NN = new NeuralNetwork(layers, NumberOf(layers));
-    unsigned int epoch = 0;
-    float currentMSE;
-    
-    do {
-        epoch++;
-        for (unsigned int j = 0; j < NumberOf(inputs); j++) {
-            NN->FeedForward(inputs[j]);      
-            NN->BackProp(expectedOutput[j]); 
-        }
-        
-        currentMSE = NN->getMeanSqrdError(NumberOf(inputs));
-        Serial.print("Epoch ");
-        Serial.print(epoch);
-        Serial.print(" - MSE: "); 
-        Serial.println(currentMSE, 6);
-        
-        if(epoch >= 1000) {
-            Serial.println("Maximum epochs reached!");
-            break;
-        }
-    } while(currentMSE > 0.01);
+  Serial.begin(115200);
+  while (!Serial);
+  
+  if (!IMU.begin()) {
+    Serial.println("Failed to initialize IMU!");
+    while (1);
+  }
+  
+  FFT = ArduinoFFT<double>(vReal, vImag, SAMPLES, SAMPLING_FREQ);
+  millisOld = millis();
+  
+  Serial.println("Send 1 or 0 to record and label a sample");
+  // Print header for CSV format
+  Serial.println("label,f0-5Hz,f5-10Hz,f10-15Hz,f15-20Hz,f20-25Hz,f25-30Hz,f30-40Hz,f40-50Hz,mean,max,variance");
+}
 
-    Serial.println("\n=-[TRAINING COMPLETE]-=");
+void extractFeatures() {
+  // Frequency bin energies
+  for(int bin = 0; bin < FEATURE_BINS; bin++) {
+    float binEnergy = 0;
+    int startIndex = (freqBands[bin] * SAMPLES) / SAMPLING_FREQ;
+    int endIndex = (freqBands[bin + 1] * SAMPLES) / SAMPLING_FREQ;
+    
+    for(int i = startIndex; i < endIndex; i++) {
+      binEnergy += vReal[i];
+    }
+    features[bin] = binEnergy / (endIndex - startIndex);
+  }
+  
+  // Statistical features
+  float mean = 0, maxVal = 0, variance = 0;
+  
+  for(int i = 0; i < SAMPLES/2; i++) {
+    mean += vReal[i];
+    if(vReal[i] > maxVal) maxVal = vReal[i];
+  }
+  mean /= (SAMPLES/2);
+  
+  for(int i = 0; i < SAMPLES/2; i++) {
+    variance += (vReal[i] - mean) * (vReal[i] - mean);
+  }
+  variance /= (SAMPLES/2);
+  
+  features[FEATURE_BINS] = mean;
+  features[FEATURE_BINS + 1] = maxVal;
+  features[FEATURE_BINS + 2] = sqrt(variance);
+}
+
+void collectAndProcessSample(int label) {
+  float x, y, z;
+  
+  // Data Collection
+  for(int i = 0; i < SAMPLES; i++) {
+    while((millis() - millisOld) < SAMPLING_PERIOD_MS);
+    millisOld = millis();
+    
+    if (IMU.accelerationAvailable()) {
+      IMU.readAcceleration(x, y, z);
+      vReal[i] = x * 9.81;
+    } else {
+      vReal[i] = (i > 0) ? vReal[i-1] : 0;
+    }
+    vImag[i] = 0;
+  }
+  
+  // FFT Processing
+  FFT.dcRemoval();
+  FFT.windowing(FFTWindow::Hamming, FFTDirection::Forward);
+  FFT.compute(FFTDirection::Forward);
+  FFT.complexToMagnitude();
+  
+  extractFeatures();
+  
+  // Output single line in CSV format with label
+  Serial.print(label);
+  for(int i = 0; i < NUM_FEATURES; i++) {
+    Serial.print(",");
+    Serial.print(features[i], 6);
+  }
+  Serial.println();
 }
 
 void loop() {
-    float correctPredictions = 0;
-    float totalMSE = 0;
+  if (Serial.available() > 0) {
+    char input = Serial.read();
     
-    Serial.println("\n=-[TEST RESULTS]-=");
-    
-    for (unsigned int i = 0; i < NumberOf(testInputs); i++) {
-        output = NN->FeedForward(testInputs[i]);
-        
-        float error = testExpectedOutput[i][0] - output[0];
-        totalMSE += error * error;
-        
-        float prediction = round(output[0]);
-        
-        if (prediction == testExpectedOutput[i][0]) {
-            correctPredictions++;
-        }
-        
-        Serial.print("Test ");
-        Serial.print(i + 1);
-        Serial.print(" - Raw Output: ");
-        Serial.print(output[0], 4);
-        Serial.print(" Predicted: ");
-        Serial.print(prediction);
-        Serial.print(" Expected: ");
-        Serial.println(testExpectedOutput[i][0]);
+    if (input == '0' || input == '1') {
+      int label = input - '0';
+      collectAndProcessSample(label);
     }
-    
-    float accuracy = (correctPredictions / NumberOf(testInputs)) * 100;
-    float avgMSE = totalMSE / NumberOf(testInputs);
-    
-    Serial.println("\n=-[FINAL METRICS]-=");
-    Serial.print("Classification Accuracy: ");
-    Serial.print(accuracy);
-    Serial.println("%");
-    Serial.print("Test Set MSE: ");
-    Serial.println(avgMSE, 6);
-    NN ->print();
-    while(true); // Stop execution
+  }
 }
