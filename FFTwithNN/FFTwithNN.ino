@@ -1,6 +1,7 @@
 #define NumberOf(arg) ((unsigned int) (sizeof (arg) / sizeof (arg [0])))
-#define _2_OPTIMIZE 0B00000000
+//#define _2_OPTIMIZE 0B00001000 //Int Quanitzation
 #define _1_OPTIMIZE 0B00010000
+//#define _2_OPTIMIZE 0B01000000 // No Biases
 
 #include <NeuralNetwork.h>
 #include "arduinoFFT.h"
@@ -27,7 +28,7 @@ unsigned long millisOld;
 const PROGMEM float freqBands[FEATURE_BINS + 1] = {0, 5, 10, 15, 20, 25, 30, 40, 50};
 
 // Network architecture
-const unsigned int layers[] = {11, 50, 40, 1};
+const unsigned int layers[] = {11, 20, 1};
 
 // Training data moved to PROGMEM
 const PROGMEM float inputs[16][11] = {
@@ -105,7 +106,7 @@ void setup() {
         
         currentMSE = NN->getMeanSqrdError(NumberOf(inputs));
         
-        if(epoch % 100 == 0) {
+        if(epoch % 10 == 0) {
             Serial.print("Epoch ");
             Serial.print(epoch);
             Serial.print(" - MSE: "); 
@@ -119,7 +120,7 @@ void setup() {
     } while(currentMSE > 0.01);
 
     Serial.println("\nTraining complete!");
-    Serial.println("Send 's' to start a live classification");
+    Serial.println("\nSend 't' for live training or 's' for classification");
 }
 
 void extractFeatures() {
@@ -189,14 +190,94 @@ void performLiveClassification() {
     Serial.print(abs(output[0] - 0.5) * 200, 1);
     Serial.println("%");
     
-    Serial.println("\nSend 's' to classify again");
+    Serial.println("\nSend 't' for live training or 's' for classification");
 }
 
+void performLiveTraining() {
+    Serial.println("Starting data collection for training...");
+    float x, y, z;
+    
+    // Data Collection
+    for(int i = 0; i < SAMPLES; i++) {
+        while((millis() - millisOld) < SAMPLING_PERIOD_MS);
+        millisOld = millis();
+        
+        if (IMU.accelerationAvailable()) {
+            IMU.readAcceleration(x, y, z);
+            vReal[i] = x * 9.81;
+        } else {
+            vReal[i] = (i > 0) ? vReal[i-1] : 0;
+        }
+        vImag[i] = 0;
+    }
+    
+    // FFT Processing
+    FFT.dcRemoval();
+    FFT.windowing(FFTWindow::Hamming, FFTDirection::Forward);
+    FFT.compute(FFTDirection::Forward);
+    FFT.complexToMagnitude();
+    
+    // Extract features
+    extractFeatures();
+    
+    // Display features and ask for label
+    Serial.println("\nFeature values for this sample:");
+    for(int i = 0; i < FEATURE_BINS; i++) {
+        Serial.print("Freq ");
+        Serial.print(pgm_read_float(&freqBands[i]));
+        Serial.print("-");
+        Serial.print(pgm_read_float(&freqBands[i+1]));
+        Serial.print("Hz: ");
+        Serial.println(features[i], 6);
+    }
+    Serial.print("Mean: "); Serial.println(features[FEATURE_BINS], 6);
+    Serial.print("Max: "); Serial.println(features[FEATURE_BINS + 1], 6);
+    Serial.print("Variance: "); Serial.println(features[FEATURE_BINS + 2], 6);
+    
+    // Wait for label input
+    Serial.println("\nEnter label (0 or 1):");
+    float label = -1;
+    while(label == -1) {
+        if(Serial.available() > 0) {
+            char input = Serial.read();
+            if(input == '0' || input == '1') {
+                label = input - '0';
+                
+                // First perform forward pass
+                NN->FeedForward(features);
+                
+                // Then perform backpropagation with the provided label
+                float expectedOutput[] = {label};
+                NN->BackProp(expectedOutput);
+                
+                // Get current prediction and error
+                output = NN->FeedForward(features);
+                float error = label - output[0];
+                
+                // Display training results
+                Serial.print("\nSample trained with label: ");
+                Serial.println(label);
+                Serial.print("Network output after training: ");
+                Serial.print(output[0], 4);
+                Serial.print(" (error: ");
+                Serial.print(abs(error), 4);
+                Serial.println(")");
+            }
+        }
+    }
+    
+    Serial.println("\nSend 't' for live training or 's' for classification");
+}
+
+// Modify loop to include live training option
 void loop() {
     if (Serial.available() > 0) {
         char input = Serial.read();
         if (input == 's' || input == 'S') {
             performLiveClassification();
+        }
+        else if (input == 't' || input == 'T') {
+            performLiveTraining();
         }
     }
 }
