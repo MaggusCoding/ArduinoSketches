@@ -1,231 +1,117 @@
+#include "arduinoFFT.h"
 #include <Arduino_LSM9DS1.h>
 
-// Constants for data collection and FFT
-const int SAMPLES = 256;              // Power of 2 for FFT
-const int SAMPLING_FREQUENCY = 100;   // 100 Hz sampling rate
-const int SAMPLING_PERIOD_US = 1000000 / SAMPLING_FREQUENCY;
-const float COLLECTION_TIME_SEC = float(SAMPLES) / SAMPLING_FREQUENCY;
+// FFT constants
+#define SAMPLES 256
+#define SAMPLING_FREQ 100
+#define SAMPLING_PERIOD_MS (1000/SAMPLING_FREQ)
+#define FEATURE_BINS 8
+#define NUM_FEATURES (FEATURE_BINS + 3)  // Frequency bins + statistical features
 
-// Maximum number of datasets to store in PROGMEM
-const int MAX_DATASETS = 10;
-const int FEATURES_PER_SAMPLE = 6;  // ax, ay, az, gx, gy, gz
+// Create FFT object
+ArduinoFFT<double> FFT;
 
-// Structure to hold a labeled dataset
-struct Dataset {
-  float data[SAMPLES][FEATURES_PER_SAMPLE];
-  uint8_t label;  // 0: no theft, 1: theft attempt
-};
+// Arrays for FFT calculations
+double vReal[SAMPLES];
+double vImag[SAMPLES];
 
-// Arrays to temporarily store sensor data
-float ax[SAMPLES], ay[SAMPLES], az[SAMPLES];
-float gx[SAMPLES], gy[SAMPLES], gz[SAMPLES];
+// Feature array
+float features[NUM_FEATURES];
+unsigned long millisOld;
 
-// Counter for stored datasets
-int datasetCount = 0;
-
-// Datasets stored in PROGMEM
-Dataset PROGMEM storedDatasets[MAX_DATASETS];
+// Frequency bands (Hz)
+const float freqBands[FEATURE_BINS + 1] = {0, 5, 10, 15, 20, 25, 30, 40, 50};
 
 void setup() {
   Serial.begin(115200);
   while (!Serial);
-
+  
   if (!IMU.begin()) {
     Serial.println("Failed to initialize IMU!");
     while (1);
   }
-
-  printMenu();
+  
+  FFT = ArduinoFFT<double>(vReal, vImag, SAMPLES, SAMPLING_FREQ);
+  millisOld = millis();
+  
+  Serial.println("Send 1 or 0 to record and label a sample");
+  // Print header for CSV format
+  Serial.println("label,f0-5Hz,f5-10Hz,f10-15Hz,f15-20Hz,f20-25Hz,f25-30Hz,f30-40Hz,f40-50Hz,mean,max,variance");
 }
 
-void loop() {
-  if (Serial.available()) {
-    char command = Serial.read();
+void extractFeatures() {
+  // Frequency bin energies
+  for(int bin = 0; bin < FEATURE_BINS; bin++) {
+    float binEnergy = 0;
+    int startIndex = (freqBands[bin] * SAMPLES) / SAMPLING_FREQ;
+    int endIndex = (freqBands[bin + 1] * SAMPLES) / SAMPLING_FREQ;
     
-    switch (command) {
-      case 'c':
-      case 'C':
-        collectAndLabelData();
-        break;
-      case 'v':
-      case 'V':
-        viewStoredDatasets();
-        break;
-      case 's':
-      case 'S':
-        streamDatasets();
-        break;
-      case 'h':
-      case 'H':
-        printMenu();
-        break;
-      default:
-        break;
+    for(int i = startIndex; i < endIndex; i++) {
+      binEnergy += vReal[i];
     }
+    features[bin] = binEnergy / (endIndex - startIndex);
   }
+  
+  // Statistical features
+  float mean = 0, maxVal = 0, variance = 0;
+  
+  for(int i = 0; i < SAMPLES/2; i++) {
+    mean += vReal[i];
+    if(vReal[i] > maxVal) maxVal = vReal[i];
+  }
+  mean /= (SAMPLES/2);
+  
+  for(int i = 0; i < SAMPLES/2; i++) {
+    variance += (vReal[i] - mean) * (vReal[i] - mean);
+  }
+  variance /= (SAMPLES/2);
+  
+  features[FEATURE_BINS] = mean;
+  features[FEATURE_BINS + 1] = maxVal;
+  features[FEATURE_BINS + 2] = sqrt(variance);
 }
 
-void printMenu() {
-  Serial.println("\n=== Motion Data Collection Menu ===");
-  Serial.println("C: Collect new labeled dataset");
-  Serial.println("V: View stored datasets");
-  Serial.println("S: Stream datasets to computer");
-  Serial.println("H: Show this menu");
-  Serial.print("Stored datasets: ");
-  Serial.print(datasetCount);
-  Serial.print("/");
-  Serial.println(MAX_DATASETS);
-}
-
-void streamDatasets() {
-  if (datasetCount == 0) {
-    Serial.println("No datasets to stream!");
-    return;
-  }
-
-  // Send start marker and number of datasets
-  Serial.println("START_STREAM");
-  Serial.println(datasetCount);
-
-  // Stream each dataset
-  for (int datasetIndex = 0; datasetIndex < datasetCount; datasetIndex++) {
-    Dataset currentDataset;
-    memcpy_P(&currentDataset, &storedDatasets[datasetIndex], sizeof(Dataset));
-    
-    // Send dataset header
-    Serial.print("DATASET_");
-    Serial.print(datasetIndex);
-    Serial.print("_LABEL_");
-    Serial.println(currentDataset.label);
-
-    // Send CSV header
-    Serial.println("Sample,AccelX,AccelY,AccelZ,GyroX,GyroY,GyroZ");
-    
-    // Send dataset values
-    for (int i = 0; i < SAMPLES; i++) {
-      Serial.print(i);
-      for (int j = 0; j < FEATURES_PER_SAMPLE; j++) {
-        Serial.print(",");
-        Serial.print(currentDataset.data[i][j], 6);
-      }
-      Serial.println();
-    }
-    
-    // Send dataset end marker
-    Serial.println("END_DATASET");
-  }
-
-  // Send end stream marker
-  Serial.println("END_STREAM");
-}
-
-void collectAndLabelData() {
-  if (datasetCount >= MAX_DATASETS) {
-    Serial.println("Error: Maximum number of datasets reached!");
-    return;
-  }
-
-  // Collect the data
-  Serial.println("\nStarting data collection...");
-  collectSamples();
+void collectAndProcessSample(int label) {
+  float x, y, z;
   
-  // Get label from user
-  Serial.println("\nEnter label (0: no theft, 1: theft attempt):");
-  while (!Serial.available());
-  
-  int label = -1;
-  while (label != 0 && label != 1) {
-    if (Serial.available()) {
-      char input = Serial.read();
-      if (input == '0' || input == '1') {
-        label = input - '0';
-      }
-    }
-  }
-
-  // Create new dataset
-  Dataset newDataset;
-  newDataset.label = label;
-  
-  // Copy data to dataset structure
-  for (int i = 0; i < SAMPLES; i++) {
-    newDataset.data[i][0] = ax[i];
-    newDataset.data[i][1] = ay[i];
-    newDataset.data[i][2] = az[i];
-    newDataset.data[i][3] = gx[i];
-    newDataset.data[i][4] = gy[i];
-    newDataset.data[i][5] = gz[i];
-  }
-
-  // Store in PROGMEM
-  memcpy_P(&storedDatasets[datasetCount], &newDataset, sizeof(Dataset));
-  datasetCount++;
-
-  Serial.print("Dataset stored with label: ");
-  Serial.println(label);
-  printMenu();
-}
-
-void collectSamples() {
-  // Clear arrays
-  memset(ax, 0, sizeof(ax));
-  memset(ay, 0, sizeof(ay));
-  memset(az, 0, sizeof(az));
-  memset(gx, 0, sizeof(gx));
-  memset(gy, 0, sizeof(gy));
-  memset(gz, 0, sizeof(gz));
-  
-  unsigned long startTime = millis();
-  
+  // Data Collection
   for(int i = 0; i < SAMPLES; i++) {
-    unsigned long startMicros = micros();
-    
-    float x, y, z;
+    while((millis() - millisOld) < SAMPLING_PERIOD_MS);
+    millisOld = millis();
     
     if (IMU.accelerationAvailable()) {
       IMU.readAcceleration(x, y, z);
-      ax[i] = x;
-      ay[i] = y;
-      az[i] = z;
+      vReal[i] = x * 9.81;
+    } else {
+      vReal[i] = (i > 0) ? vReal[i-1] : 0;
     }
-    
-    if (IMU.gyroscopeAvailable()) {
-      IMU.readGyroscope(x, y, z);
-      gx[i] = x;
-      gy[i] = y;
-      gz[i] = z;
-    }
-    
-    while(micros() - startMicros < SAMPLING_PERIOD_US);
+    vImag[i] = 0;
   }
   
-  unsigned long actualCollectionTime = millis() - startTime;
-  Serial.print("Collection completed in ");
-  Serial.print(actualCollectionTime);
-  Serial.println(" ms");
+  // FFT Processing
+  FFT.dcRemoval();
+  FFT.windowing(FFTWindow::Hamming, FFTDirection::Forward);
+  FFT.compute(FFTDirection::Forward);
+  FFT.complexToMagnitude();
+  
+  extractFeatures();
+  
+  // Output single line in CSV format with label
+  Serial.print(label);
+  for(int i = 0; i < NUM_FEATURES; i++) {
+    Serial.print(",");
+    Serial.print(features[i], 6);
+  }
+  Serial.println();
 }
 
-void viewStoredDatasets() {
-  if (datasetCount == 0) {
-    Serial.println("No datasets stored!");
-    return;
-  }
-
-  Serial.println("\n=== Stored Datasets ===");
-  for (int i = 0; i < datasetCount; i++) {
-    Dataset currentDataset;
-    memcpy_P(&currentDataset, &storedDatasets[i], sizeof(Dataset));
+void loop() {
+  if (Serial.available() > 0) {
+    char input = Serial.read();
     
-    Serial.print("Dataset ");
-    Serial.print(i + 1);
-    Serial.print(" - Label: ");
-    Serial.print(currentDataset.label);
-    Serial.print(" - First sample values: ");
-    for (int j = 0; j < FEATURES_PER_SAMPLE; j++) {
-      Serial.print(currentDataset.data[0][j], 4);
-      Serial.print(" ");
+    if (input == '0' || input == '1') {
+      int label = input - '0';
+      collectAndProcessSample(label);
     }
-    Serial.println();
   }
-  printMenu();
 }
