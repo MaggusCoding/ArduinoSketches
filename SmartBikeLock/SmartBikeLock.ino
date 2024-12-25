@@ -44,24 +44,28 @@ void setup() {
         Serial.println("Failed to initialize BLE communication!");
         while (1);
     }
+    
     NN.init(layers, weights, 4);
 }
 
 void loop() {
     bleComm.update();
     
-    if (bleComm.isConnected()) {
-        // Check for commands
-        if (bleComm.getCurrentCommand() == Command::GET_WEIGHTS) {
-            bleComm.sendWeights(currentWeights, 10);
+    if (bleComm.getCurrentCommand() == Command::GET_WEIGHTS) {
+        Serial.println("Received GET_WEIGHTS command");
+        
+        size_t numWeights = NN.getTotalWeights();
+        float* currentWeights = new float[numWeights];
+        
+        if (NN.getWeights(currentWeights, numWeights)) {
+            // Send weights in chunks
+            bleComm.sendWeights(currentWeights, numWeights);
+            Serial.println("Weights sent successfully");
+        } else {
+            Serial.println("Failed to get weights");
         }
-        else if (bleComm.getCurrentCommand() == Command::SET_WEIGHTS) {
-            if (bleComm.receiveWeights(receivedWeights, 10)) {
-                // Copy new weights to current weights
-                memcpy(currentWeights, receivedWeights, sizeof(currentWeights));
-                Serial.println("Updated current weights with received weights");
-            }
-        }
+        
+        delete[] currentWeights;
     }
     
     delay(100);

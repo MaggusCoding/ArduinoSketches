@@ -13,7 +13,8 @@ public:
     void init(const unsigned int* layer_, float* weights, const unsigned int& NumberOflayers);
     bool processInput(const float* input, size_t length);
     bool updateWeights(const float* newWeights, size_t length);
-    float* getWeights(size_t& length);
+    bool getWeights(float* buffer, size_t length);
+    size_t getTotalWeights();
     
 private:
     NeuralNetwork* nn;  // Change to pointer

@@ -67,7 +67,7 @@ bool Communication::sendWeights(const float* weights, size_t length) {
     const size_t chunk_size = 4;
     uint8_t chunk[16]; // 4 floats * 4 bytes
     
-    if (currentSendPos < length) {
+    while (currentSendPos < length) {
         size_t floatsToSend = min(chunk_size, length - currentSendPos);
         size_t bytesToSend = floatsToSend * sizeof(float);
         
@@ -82,6 +82,7 @@ bool Communication::sendWeights(const float* weights, size_t length) {
             Serial.println();
             
             currentSendPos += floatsToSend;
+            delay(50);  // Add delay between chunks
             
             if (currentSendPos >= length) {
                 currentSendPos = 0;
