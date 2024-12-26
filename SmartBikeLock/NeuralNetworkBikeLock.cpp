@@ -73,12 +73,37 @@ bool NeuralNetworkBikeLock::processInput(const float* input, size_t length) {
     return true;
 }
 
-bool NeuralNetworkBikeLock::updateWeights(const float* newWeights, size_t length) {
-    if (!isInitialized) return false;
+bool NeuralNetworkBikeLock::updateNetworkWeights(const float* newWeights, size_t length) {
+    if (!isInitialized || !newWeights) {
+        Serial.println("Cannot update weights: Network not initialized or invalid weights");
+        return false;
+    }
     
-    // Add logic to update weights
-    // This will depend on how the underlying library handles weight updates
+    // Verify length matches expected total weights
+    size_t expectedWeights = getTotalWeights();
+    if (length != expectedWeights) {
+        Serial.print("Weight count mismatch. Expected: ");
+        Serial.print(expectedWeights);
+        Serial.print(" Got: ");
+        Serial.println(length);
+        return false;
+    }
     
+    // Update weights in the network
+    #if defined(REDUCE_RAM_WEIGHTS_LVL2)
+        memcpy(nn->weights, newWeights, length * sizeof(float));
+    #else
+        size_t weightIndex = 0;
+        for (unsigned int i = 0; i < nn->numberOflayers; i++) {
+            for (unsigned int out = 0; out < nn->layers[i]._numberOfOutputs; out++) {
+                for (unsigned int in = 0; in < nn->layers[i]._numberOfInputs; in++) {
+                    nn->layers[i].weights[out][in] = newWeights[weightIndex++];
+                }
+            }
+        }
+    #endif
+    
+    Serial.println("Network weights updated successfully");
     return true;
 }
 

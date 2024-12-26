@@ -4,9 +4,6 @@
 
 Communication bleComm;
 NeuralNetworkBikeLock NN;
-// Current weights array
-float currentWeights[10] = {0.75, -0.23, 0.91, 0.45, -0.82, 0.31, -0.77, 0.44, -0.12, 0.89};
-float receivedWeights[10];
 
 const unsigned int layers[] = {3, 9, 9, 1};
 
@@ -67,6 +64,47 @@ void loop() {
         
         delete[] currentWeights;
     }
+
+    static bool receiving = false;
+    static float tempWeights[117];
+    static unsigned long lastReceiveTime = 0;
     
-    delay(100);
+    if (bleComm.getCurrentCommand() == Command::SET_WEIGHTS) {
+         // Only initialize receiving state when we first get the command
+        if (!receiving) {
+            Serial.println("Starting to receive new weights...");
+            receiving = true;
+            lastReceiveTime = millis();
+            // Don't reset state here
+        }
+        
+        // Check for timeout
+        if (receiving && (millis() - lastReceiveTime > 5000)) {
+            Serial.println("Timeout receiving weights. Resetting state.");
+            receiving = false;
+            bleComm.resetState();
+            return;
+        }
+        
+        // Try to receive weights
+        if (bleComm.receiveWeights(tempWeights, 117)) {
+            Serial.println("Successfully received all weights");
+            if (NN.updateNetworkWeights(tempWeights, 117)) {
+                Serial.println("Neural network weights updated");
+            } else {
+                Serial.println("Failed to update neural network weights");
+            }
+            receiving = false;
+            // Only reset state after successful reception
+            bleComm.resetState();
+        }
+        
+        lastReceiveTime = millis();
+    } else if (receiving) {
+        // If we were receiving but command changed, clean up
+        receiving = false;
+        bleComm.resetState();
+    }
+    
+    delay(50);  // Reduced delay for better responsiveness
 }

@@ -12,7 +12,7 @@ enum class Command {
 
 class Communication {
 public:
-    Communication();
+    Communication(); // Initialize in constructor
     bool begin();
     void update();
     bool isConnected();
@@ -21,6 +21,7 @@ public:
     // Functions for sending and receiving weights
     bool sendWeights(const float* weights, size_t length);
     bool receiveWeights(float* buffer, size_t length);
+    void resetState();
 
 private:
     const char* deviceName = "SmartBikeLock";
@@ -33,10 +34,11 @@ private:
     BLECharacteristic controlCharacteristic;
     
     // Variables for chunked transfer
-    float tempBuffer[10];
-    size_t currentBufferPos = 0;
     size_t currentSendPos = 0;
     Command currentCommand = Command::NONE;
+    static const size_t MAX_WEIGHTS = 117;  // Set to your actual max weights
+    float tempBuffer[MAX_WEIGHTS];
+    size_t currentBufferPos;  // Make sure this is size_t, not int
 };
 
 #endif

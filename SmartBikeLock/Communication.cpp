@@ -4,7 +4,8 @@
 Communication::Communication() : 
     lockService(serviceUUID),
     weightsCharacteristic(weightsCharUUID, BLERead | BLEWrite | BLENotify, sizeof(float) * 4),
-    controlCharacteristic(controlCharUUID, BLERead | BLEWrite, sizeof(uint8_t))
+    controlCharacteristic(controlCharUUID, BLERead | BLEWrite, sizeof(uint8_t)),
+    currentBufferPos(0)  // Initialize member variable
 {
 }
 
@@ -96,7 +97,8 @@ bool Communication::sendWeights(const float* weights, size_t length) {
 }
 
 bool Communication::receiveWeights(float* buffer, size_t length) {
-    if (!isConnected()) {
+    if (!isConnected() || length > MAX_WEIGHTS) {
+        Serial.println("Not connected or buffer too large");
         return false;
     }
     
@@ -105,28 +107,53 @@ bool Communication::receiveWeights(float* buffer, size_t length) {
         int bytesRead = weightsCharacteristic.readValue(chunk, sizeof(chunk));
         
         int numFloats = bytesRead / 4;
+        
+        // Validate buffer position
+        if (currentBufferPos >= length) {
+            Serial.println("Buffer position out of bounds, resetting");
+            currentBufferPos = 0;
+            return false;
+        }
+        
+        Serial.print("Processing ");
+        Serial.print(numFloats);
+        Serial.print(" floats. Current position: ");
+        Serial.print(currentBufferPos);
+        Serial.print("/");
+        Serial.println(length);
+        
         for(int i = 0; i < numFloats && currentBufferPos < length; i++) {
             float value;
             memcpy(&value, &chunk[i * 4], 4);
-            tempBuffer[currentBufferPos++] = value;
             
-            if (currentBufferPos == length) {
-                memcpy(buffer, tempBuffer, length * sizeof(float));
-                currentBufferPos = 0;
-                currentCommand = Command::NONE;
+            // Bounds check
+            if (currentBufferPos < MAX_WEIGHTS) {
+                tempBuffer[currentBufferPos] = value;
+                Serial.print("Stored weight at position ");
+                Serial.print(currentBufferPos);
+                Serial.print(": ");
+                Serial.println(value);
+                currentBufferPos++;
                 
-                Serial.println("\nReceived all weights:");
-                Serial.println("--------------------");
-                for(size_t i = 0; i < length; i++) {
-                    Serial.print("Weight[");
-                    Serial.print(i);
-                    Serial.print("]: ");
-                    Serial.println(buffer[i], 6);
+                if (currentBufferPos == length) {
+                    memcpy(buffer, tempBuffer, length * sizeof(float));
+                    currentBufferPos = 0;
+                    currentCommand = Command::NONE;
+                    Serial.println("Received all weights. Resetting state.");
+                    return true;
                 }
-                Serial.println("--------------------");
-                return true;
+            } else {
+                Serial.println("Buffer overflow prevented");
+                currentBufferPos = 0;
+                return false;
             }
         }
     }
     return false;
+}
+
+void Communication::resetState() {
+    currentBufferPos = 0;
+    currentCommand = Command::NONE;
+    Serial.println("Communication state reset");
 }
