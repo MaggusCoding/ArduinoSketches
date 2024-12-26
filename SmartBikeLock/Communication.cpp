@@ -24,6 +24,10 @@ bool Communication::begin() {
     lockService.addCharacteristic(controlCharacteristic);
     BLE.addService(lockService);
 
+    // Set event handlers
+    BLE.setEventHandler(BLEConnected, Communication::onBLEConnected);
+    BLE.setEventHandler(BLEDisconnected, Communication::onBLEDisconnected);
+
     BLE.advertise();
     Serial.println("BLE service started");
     Serial.print("Device MAC: ");
@@ -33,7 +37,6 @@ bool Communication::begin() {
 
 void Communication::update() {
     BLE.poll();
-    
     // Check for control commands
     if (controlCharacteristic.written()) {
         uint8_t command;
@@ -53,6 +56,16 @@ void Communication::update() {
                 break;
         }
     }
+}
+
+void Communication::onBLEConnected(BLEDevice central) {
+    Serial.print("Connected to central: ");
+    Serial.println(central.address());
+}
+
+void Communication::onBLEDisconnected(BLEDevice central) {
+    Serial.print("Disconnected from central: ");
+    Serial.println(central.address());
 }
 
 bool Communication::isConnected() {

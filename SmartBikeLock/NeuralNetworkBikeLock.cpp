@@ -1,4 +1,5 @@
 #define _2_OPTIMIZE 0B01000000
+#define _1_OPTIMIZE 0B00010000
 #include "NeuralNetworkBikeLock.h"
 #include <NeuralNetwork.h>
 
