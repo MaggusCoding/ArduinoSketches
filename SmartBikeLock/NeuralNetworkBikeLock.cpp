@@ -6,28 +6,104 @@
 NeuralNetworkBikeLock::NeuralNetworkBikeLock() : nn(nullptr), isInitialized(false) {
 }
 
-void NeuralNetworkBikeLock::init(const unsigned int* layer_, float* default_Weights, const unsigned int& NumberOflayers) {
+void NeuralNetworkBikeLock::init(const unsigned int* layer_, float* weights, const unsigned int& NumberOflayers) {
     Serial.println("Starting NN initialization...");
     if (!isInitialized) {
         numLayers = NumberOflayers;
-        Serial.print("Number of layers: ");
-        Serial.println(numLayers);
         
         layers = new unsigned int[numLayers];
         memcpy(layers, layer_, numLayers * sizeof(unsigned int));
         
+        // Calculate total weights needed
+        size_t totalWeights = getTotalWeights();
+        
+        // If no weights provided, create random weights
+        if (weights == nullptr) {
+            float* randomWeights = new float[totalWeights];
+            
+            // Initialize with random weights between -1 and 1
+            for (size_t i = 0; i < totalWeights; i++) {
+                randomWeights[i] = (random(2000) - 1000) / 1000.0f;
+            }
+            
+            nn = new NeuralNetwork(layer_, randomWeights, NumberOflayers);
+            delete[] randomWeights;
+        } else {
+            nn = new NeuralNetwork(layer_, weights, NumberOflayers);
+        }
+        
+        isInitialized = true;
+        Serial.println("Neural Network initialized successfully");
+        
+        // Print layer configuration
         Serial.println("Layer configuration:");
         for(unsigned int i = 0; i < numLayers; i++) {
             Serial.print(layers[i]);
             if(i < numLayers - 1) Serial.print(" -> ");
         }
         Serial.println();
-        
-        nn = new NeuralNetwork(layer_, default_Weights, NumberOflayers);
-        isInitialized = true;
-        Serial.println("Neural Network initialized successfully");
     } else {
         Serial.println("Neural Network already initialized");
+    }
+}
+
+void NeuralNetworkBikeLock::performLiveTraining(const float* features, int label) {
+    if (!isInitialized || label < 0 || label > 2) return;
+    
+    // Create one-hot encoded output
+    float expectedOutput[3] = {0.0f, 0.0f, 0.0f};
+    expectedOutput[label] = 1.0f;
+    
+    // First perform forward pass to get current prediction
+    float* currentOutput = nn->FeedForward(features);
+    
+    // Display current prediction before training
+    Serial.println("\nPredictions before training:");
+    Serial.print("No theft: "); Serial.println(currentOutput[0], 4);
+    Serial.print("Carrying away: "); Serial.println(currentOutput[1], 4);
+    Serial.print("Lock breach: "); Serial.println(currentOutput[2], 4);
+    
+    // Perform backpropagation
+    nn->BackProp(expectedOutput);
+    
+    // Get updated predictions
+    float* output = nn->FeedForward(features);
+    
+    // Display training results
+    Serial.println("\nPredictions after training:");
+    Serial.print("No theft: "); Serial.println(output[0], 4);
+    Serial.print("Carrying away: "); Serial.println(output[1], 4);
+    Serial.print("Lock breach: "); Serial.println(output[2], 4);
+}
+
+NNConfig::TheftClass NeuralNetworkBikeLock::performInference(const float* features) {
+    if (!isInitialized) return NNConfig::TheftClass::NO_THEFT;
+    
+    float* output = nn->FeedForward(features);
+    
+    // Find the highest probability class
+    float maxProb = output[0];
+    int maxIdx = 0;
+    
+    for(int i = 1; i < 3; i++) {
+        if(output[i] > maxProb) {
+            maxProb = output[i];
+            maxIdx = i;
+        }
+    }
+    
+    return static_cast<NNConfig::TheftClass>(maxIdx);
+}
+
+// Get prediction probabilities for all classes
+void NeuralNetworkBikeLock::getPredictionProbabilities(const float* features, float* probabilities) {
+    if (!isInitialized) return;
+    
+    float* output = nn->FeedForward(features);
+    
+    // Copy probabilities
+    for(int i = 0; i < 3; i++) {
+        probabilities[i] = output[i];
     }
 }
 
@@ -64,15 +140,6 @@ bool NeuralNetworkBikeLock::getWeights(float* buffer, size_t length) {
     return true;
 }
 
-
-bool NeuralNetworkBikeLock::processInput(const float* input, size_t length) {
-    if (!isInitialized) return false;
-    
-    // Process input through neural network
-    float* output = nn->FeedForward(input);
-    
-    return true;
-}
 
 bool NeuralNetworkBikeLock::updateNetworkWeights(const float* newWeights, size_t length) {
     if (!isInitialized || !newWeights) {

@@ -2,10 +2,10 @@
 #include "Communication.h"
 
 Communication::Communication() : 
-    lockService(serviceUUID),
-    weightsCharacteristic(weightsCharUUID, BLERead | BLEWrite | BLENotify, sizeof(float) * 4),
-    controlCharacteristic(controlCharUUID, BLERead | BLEWrite, sizeof(uint8_t)),
-    currentBufferPos(0)  // Initialize member variable
+    lockService(BLEConfig::SERVICE_UUID),
+    weightsCharacteristic(BLEConfig::WEIGHTS_CHAR_UUID, BLERead | BLEWrite | BLENotify, sizeof(float) * 4),
+    controlCharacteristic(BLEConfig::CONTROL_CHAR_UUID, BLERead | BLEWrite, sizeof(uint8_t)),
+    currentBufferPos(0)
 {
 }
 
@@ -17,14 +17,13 @@ bool Communication::begin() {
         return false;
     }
 
-    BLE.setLocalName(deviceName);
+    BLE.setLocalName(BLEConfig::DEVICE_NAME);
     BLE.setAdvertisedService(lockService);
     
     lockService.addCharacteristic(weightsCharacteristic);
     lockService.addCharacteristic(controlCharacteristic);
     BLE.addService(lockService);
 
-    // Set event handlers
     BLE.setEventHandler(BLEConnected, Communication::onBLEConnected);
     BLE.setEventHandler(BLEDisconnected, Communication::onBLEDisconnected);
 
@@ -110,7 +109,7 @@ bool Communication::sendWeights(const float* weights, size_t length) {
 }
 
 bool Communication::receiveWeights(float* buffer, size_t length) {
-    if (!isConnected() || length > MAX_WEIGHTS) {
+    if (!isConnected() || length > NNConfig::MAX_WEIGHTS) {
         Serial.println("Not connected or buffer too large");
         return false;
     }
@@ -140,7 +139,7 @@ bool Communication::receiveWeights(float* buffer, size_t length) {
             memcpy(&value, &chunk[i * 4], 4);
             
             // Bounds check
-            if (currentBufferPos < MAX_WEIGHTS) {
+              if (currentBufferPos < NNConfig::MAX_WEIGHTS) {
                 tempBuffer[currentBufferPos] = value;
                 Serial.print("Stored weight at position ");
                 Serial.print(currentBufferPos);
