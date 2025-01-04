@@ -15,15 +15,23 @@ void performClassification() {
         const float* features = signalProc.getFeatures();
         Serial.println("Features extracted");
         
-        // Get probabilities for all classes
-        float probabilities[3];
+        float probabilities[1];  // For binary classification
         NN.getPredictionProbabilities(features, probabilities);
+        float prediction = probabilities[0];
         
-        // Display results
         Serial.println("\nClassification Results:");
-        Serial.print("No theft: "); Serial.print(probabilities[0] * 100, 1); Serial.println("%");
-        Serial.print("Carrying away: "); Serial.print(probabilities[1] * 100, 1); Serial.println("%");
-        Serial.print("Lock breach: "); Serial.print(probabilities[2] * 100, 1); Serial.println("%");
+        Serial.print("Raw output: "); Serial.println(prediction, 4);
+        Serial.print("Classification: ");
+        if (prediction > 0.5) {
+            Serial.println("SUSPICIOUS");
+            Serial.print("Confidence: ");
+            Serial.print((prediction - 0.5) * 200, 1);
+        } else {
+            Serial.println("NORMAL");
+            Serial.print("Confidence: ");
+            Serial.print((0.5 - prediction) * 200, 1);
+        }
+        Serial.println("%");
     }
     
     Serial.println("\nSend 'r' to record and train, or 'c' for classification");
@@ -47,15 +55,14 @@ void recordAndTrain() {
             Serial.println(features[i], 6);
         }
         
-        Serial.println("\nEnter label (0-2):");
-        Serial.println("0: No theft attempt");
-        Serial.println("1: Carrying away attempt");
-        Serial.println("2: Lock breach attempt");
+        Serial.println("\nEnter label (0-1):");
+        Serial.println("0: Normal behavior");
+        Serial.println("1: Suspicious behavior");
         
         while(true) {
             if(Serial.available() > 0) {
                 char input = Serial.read();
-                if(input >= '0' && input <= '2') {
+                if(input == '0' || input == '1') {
                     int label = input - '0';
                     Serial.print("Training with label: ");
                     Serial.println(label);
@@ -76,8 +83,6 @@ void setup() {
     Serial.begin(9600);
     delay(1000);
     Serial.println("Starting setup...");
-    
-    randomSeed(analogRead(A0));
     
     if (!bleComm.begin()) {
         Serial.println("Failed to initialize BLE communication!");
@@ -100,8 +105,6 @@ void setup() {
     Serial.println("Initializing Neural Network...");
     NN.init(NNConfig::LAYERS, nullptr, NNConfig::NUM_LAYERS);
     Serial.println("Neural network initialized!");
-    
-    Serial.println("Setup complete!");
     Serial.println("Send 'r' to record and train, or 'c' for classification");
 }
 
@@ -118,6 +121,24 @@ void loop() {
         }
         else if (input == 'r' || input == 'R') {
             recordAndTrain();
+        }
+    }
+    
+    // Handle BLE communication
+    if (bleComm.getCurrentCommand() == Command::GET_WEIGHTS) {
+        size_t numWeights = NN.getTotalWeights();
+        float* currentWeights = new float[numWeights];
+        
+        if (NN.getWeights(currentWeights, numWeights)) {
+            bleComm.sendWeights(currentWeights, numWeights);
+        }
+        
+        delete[] currentWeights;
+    }
+    else if (bleComm.getCurrentCommand() == Command::SET_WEIGHTS) {
+        static float tempWeights[NNConfig::MAX_WEIGHTS];
+        if (bleComm.receiveWeights(tempWeights, NNConfig::MAX_WEIGHTS)) {
+            NN.updateNetworkWeights(tempWeights, NNConfig::MAX_WEIGHTS);
         }
     }
     
