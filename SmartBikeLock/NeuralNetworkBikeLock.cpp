@@ -52,31 +52,25 @@ void NeuralNetworkBikeLock::init(const unsigned int* layer_, float* weights, con
 }
 
 void NeuralNetworkBikeLock::performLiveTraining(const float* features, int label) {
-    if (!isInitialized || label < 0 || label > 1) return;  // Changed to check for binary labels
+    if (!isInitialized || label < 0 || label > 2) return;  // Changed to check for binary labels
     
     Serial.println("Starting training process...");
     
-    // Create binary label (0 or 1)
-    float expectedOutput[1] = {static_cast<float>(label)};
+    float expectedOutput[3] = {0.0f, 0.0f, 0.0f};
+    expectedOutput[label] = 1.0f;
+    Serial.println("Created one-hot encoded output");
+    Serial.print("Target: [");
+    for(int i = 0; i < 3; i++) {
+        Serial.print(expectedOutput[i]);
+        if(i < 2) Serial.print(", ");
+    }
+    Serial.println("]");
     
-    Serial.println("Created binary label");
-    Serial.print("Target: ");
-    Serial.println(expectedOutput[0]);
-    
-    // First perform forward pass to get current prediction
-    Serial.println("Performing forward pass...");
+    Serial.println("Performing backpropagation...");
     nn->FeedForward(features);
     nn->BackProp(expectedOutput);  // Pass the array directly
     Serial.println("Backpropagation completed");
-    
-    // Get updated predictions
-    Serial.println("Getting updated predictions...");
-    float* output = nn->FeedForward(features);
-    
-    // Display training results
-    Serial.println("\nPrediction after training:");
-    Serial.print("Output: "); Serial.println(output[0], 4);
-    
+
     Serial.println("Training process completed");
 }
 

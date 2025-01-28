@@ -7,7 +7,9 @@
 enum class Command {
     NONE = 0,
     GET_WEIGHTS = 1,
-    SET_WEIGHTS = 2
+    SET_WEIGHTS = 2,
+    START_TRAINING = 3,
+    START_CLASSIFICATION = 4
 };
 
 class Communication {
@@ -20,11 +22,15 @@ public:
     bool sendWeights(const float* weights, size_t length);
     bool receiveWeights(float* buffer, size_t length);
     void resetState();
+    bool sendPrediction(const float* probabilities, size_t length);
+    int8_t getTrainingLabel();
 
 private:
     BLEService lockService;
     BLECharacteristic weightsCharacteristic;
     BLECharacteristic controlCharacteristic;
+    BLECharacteristic labelCharacteristic;
+    BLECharacteristic predictionCharacteristic;
     
     // Variables for chunked transfer
     size_t currentSendPos = 0;

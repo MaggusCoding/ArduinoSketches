@@ -1,11 +1,13 @@
-// Communication.cpp
 #include "Communication.h"
 
 Communication::Communication() : 
     lockService(BLEConfig::SERVICE_UUID),
-    weightsCharacteristic(BLEConfig::WEIGHTS_CHAR_UUID, BLERead | BLEWrite | BLENotify, sizeof(float) * 4),
+    weightsCharacteristic(BLEConfig::WEIGHTS_CHAR_UUID, BLERead | BLEWrite | BLENotify, sizeof(float) * 16),
     controlCharacteristic(BLEConfig::CONTROL_CHAR_UUID, BLERead | BLEWrite, sizeof(uint8_t)),
-    currentBufferPos(0)
+    labelCharacteristic(BLEConfig::LABEL_CHAR_UUID, BLERead | BLEWrite, sizeof(int8_t)),
+    predictionCharacteristic(BLEConfig::PREDICTION_CHAR_UUID, BLERead | BLENotify, sizeof(float) * 3),
+    currentBufferPos(0),
+    currentSendPos(0)
 {
 }
 
@@ -22,6 +24,8 @@ bool Communication::begin() {
     
     lockService.addCharacteristic(weightsCharacteristic);
     lockService.addCharacteristic(controlCharacteristic);
+    lockService.addCharacteristic(labelCharacteristic);
+    lockService.addCharacteristic(predictionCharacteristic);
     BLE.addService(lockService);
 
     BLE.setEventHandler(BLEConnected, Communication::onBLEConnected);
@@ -36,7 +40,7 @@ bool Communication::begin() {
 
 void Communication::update() {
     BLE.poll();
-    // Check for control commands
+    
     if (controlCharacteristic.written()) {
         uint8_t command;
         controlCharacteristic.readValue(command);
@@ -48,7 +52,13 @@ void Communication::update() {
                 break;
             case Command::SET_WEIGHTS:
                 Serial.println("Received SET_WEIGHTS command");
-                currentBufferPos = 0; // Reset buffer for receiving
+                currentBufferPos = 0;
+                break;
+            case Command::START_TRAINING:
+                Serial.println("Received START_TRAINING command");
+                break;
+            case Command::START_CLASSIFICATION:
+                Serial.println("Received START_CLASSIFICATION command");
                 break;
             default:
                 Serial.println("Unknown command received");
@@ -73,12 +83,13 @@ bool Communication::isConnected() {
 
 bool Communication::sendWeights(const float* weights, size_t length) {
     if (!isConnected()) {
+        Serial.println("Not connected");
         return false;
     }
 
-    // Send 4 floats at a time
-    const size_t chunk_size = 4;
-    uint8_t chunk[16]; // 4 floats * 4 bytes
+    const size_t chunk_size = 16;  // Number of floats per chunk
+    const size_t chunk_bytes = chunk_size * sizeof(float);
+    uint8_t chunk[chunk_bytes];
     
     while (currentSendPos < length) {
         size_t floatsToSend = min(chunk_size, length - currentSendPos);
@@ -87,21 +98,23 @@ bool Communication::sendWeights(const float* weights, size_t length) {
         memcpy(chunk, &weights[currentSendPos], bytesToSend);
         
         if (weightsCharacteristic.writeValue(chunk, bytesToSend)) {
-            Serial.print("Sent weights: ");
-            for (size_t i = 0; i < floatsToSend; i++) {
-                Serial.print(weights[currentSendPos + i], 6);
-                Serial.print(" ");
-            }
-            Serial.println();
+            Serial.print("Sent weights chunk: ");
+            Serial.print(currentSendPos);
+            Serial.print(" to ");
+            Serial.println(currentSendPos + floatsToSend - 1);
             
             currentSendPos += floatsToSend;
-            delay(50);  // Add delay between chunks
+            delay(80);  // Small delay between chunks
             
             if (currentSendPos >= length) {
                 currentSendPos = 0;
                 currentCommand = Command::NONE;
+                Serial.println("Completed sending all weights");
                 return true;
             }
+        } else {
+            Serial.println("Failed to send weight chunk");
+            return false;
         }
     }
     
@@ -115,57 +128,78 @@ bool Communication::receiveWeights(float* buffer, size_t length) {
     }
     
     if (weightsCharacteristic.written()) {
-        uint8_t chunk[16];
+        const size_t max_chunk_size = 16 * sizeof(float);  // 16 floats per chunk
+        uint8_t chunk[max_chunk_size];
         int bytesRead = weightsCharacteristic.readValue(chunk, sizeof(chunk));
         
-        int numFloats = bytesRead / 4;
+        int numFloats = bytesRead / sizeof(float);
         
-        // Validate buffer position
-        if (currentBufferPos >= length) {
-            Serial.println("Buffer position out of bounds, resetting");
+        Serial.print("Received chunk of ");
+        Serial.print(bytesRead);
+        Serial.print(" bytes (");
+        Serial.print(numFloats);
+        Serial.println(" floats)");
+        
+        if (currentBufferPos + numFloats > length) {
+            Serial.println("Error: Receiving more weights than expected");
             currentBufferPos = 0;
             return false;
         }
         
-        Serial.print("Processing ");
-        Serial.print(numFloats);
-        Serial.print(" floats. Current position: ");
-        Serial.print(currentBufferPos);
-        Serial.print("/");
-        Serial.println(length);
-        
-        for(int i = 0; i < numFloats && currentBufferPos < length; i++) {
+        // Process each float in the chunk
+        for (int i = 0; i < numFloats; i++) {
             float value;
-            memcpy(&value, &chunk[i * 4], 4);
+            memcpy(&value, &chunk[i * sizeof(float)], sizeof(float));
             
-            // Bounds check
-              if (currentBufferPos < NNConfig::MAX_WEIGHTS) {
-                tempBuffer[currentBufferPos] = value;
-                Serial.print("Stored weight at position ");
+            tempBuffer[currentBufferPos] = value;
+            
+            if (currentBufferPos % 16 == 0) {  // Print progress every 16 weights
+                Serial.print("Progress: ");
                 Serial.print(currentBufferPos);
-                Serial.print(": ");
-                Serial.println(value);
-                currentBufferPos++;
-                
-                if (currentBufferPos == length) {
-                    memcpy(buffer, tempBuffer, length * sizeof(float));
-                    currentBufferPos = 0;
-                    currentCommand = Command::NONE;
-                    Serial.println("Received all weights. Resetting state.");
-                    return true;
-                }
-            } else {
-                Serial.println("Buffer overflow prevented");
+                Serial.print("/");
+                Serial.println(length);
+            }
+            
+            currentBufferPos++;
+            
+            if (currentBufferPos == length) {
+                memcpy(buffer, tempBuffer, length * sizeof(float));
                 currentBufferPos = 0;
-                return false;
+                currentCommand = Command::NONE;
+                Serial.println("Successfully received all weights");
+                return true;
             }
         }
     }
     return false;
 }
 
+bool Communication::sendPrediction(const float* probabilities, size_t length) {
+    if (!isConnected() || length != 3) {
+        Serial.println("Not connected or invalid prediction length");
+        return false;
+    }
+    
+    bool success = predictionCharacteristic.writeValue(probabilities, length * sizeof(float));
+    if (success) {
+        Serial.println("Sent prediction probabilities");
+    } else {
+        Serial.println("Failed to send prediction probabilities");
+    }
+    return success;
+}
+
+int8_t Communication::getTrainingLabel() {
+    int8_t label = -1;
+    labelCharacteristic.readValue(label);
+    Serial.print("Received training label: ");
+    Serial.println(label);
+    return label;
+}
+
 void Communication::resetState() {
     currentBufferPos = 0;
+    currentSendPos = 0;
     currentCommand = Command::NONE;
     Serial.println("Communication state reset");
 }

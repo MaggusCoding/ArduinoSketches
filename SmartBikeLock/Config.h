@@ -4,8 +4,8 @@
 
 // Neural Network Configuration
 namespace NNConfig {
-    constexpr unsigned int NUM_LAYERS = 4;
-    constexpr unsigned int LAYERS[NUM_LAYERS] = {11, 20, 10, 1};  // Updated for 3-class classification
+    constexpr unsigned int NUM_LAYERS = 3;
+    constexpr unsigned int LAYERS[NUM_LAYERS] = {11, 30, 3};  // Changed back to 3 outputs
     
     constexpr float ERROR_THRESHOLD = 0.01f;
     constexpr unsigned int MAX_EPOCHS = 1000;
@@ -30,7 +30,7 @@ namespace NNConfig {
 
 // Signal Processing Configuration
 namespace SignalConfig {
-    constexpr unsigned int SAMPLES = 128;
+    constexpr unsigned int SAMPLES = 256;
     constexpr unsigned int SAMPLING_FREQ = 100;
     constexpr unsigned int SAMPLING_PERIOD_MS = 1000/SAMPLING_FREQ;
     constexpr unsigned int FEATURE_BINS = 8;
@@ -46,6 +46,9 @@ namespace BLEConfig {
     constexpr char SERVICE_UUID[] = "19B10000-E8F2-537E-4F6C-D104768A1214";
     constexpr char WEIGHTS_CHAR_UUID[] = "19B10001-E8F2-537E-4F6C-D104768A1214";
     constexpr char CONTROL_CHAR_UUID[] = "19B10002-E8F2-537E-4F6C-D104768A1214";
+    constexpr char LABEL_CHAR_UUID[] = "19B10003-E8F2-537E-4F6C-D104768A1214";
+    constexpr char PREDICTION_CHAR_UUID[] = "19B10004-E8F2-537E-4F6C-D104768A1214";
+    constexpr char FEATURES_CHAR_UUID[] = "19B10005-E8F2-537E-4F6C-D104768A1214";
 }
 
 #endif

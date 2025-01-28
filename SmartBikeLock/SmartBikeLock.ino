@@ -6,78 +6,6 @@ Communication bleComm;
 NeuralNetworkBikeLock NN;
 SignalProcessing signalProc;
 
-void performClassification() {
-    Serial.println("Starting classification...");
-    
-    if (signalProc.collectData()) {
-        Serial.println("Data collected, processing...");
-        signalProc.processData();
-        const float* features = signalProc.getFeatures();
-        Serial.println("Features extracted");
-        
-        float probabilities[1];  // For binary classification
-        NN.getPredictionProbabilities(features, probabilities);
-        float prediction = probabilities[0];
-        
-        Serial.println("\nClassification Results:");
-        Serial.print("Raw output: "); Serial.println(prediction, 4);
-        Serial.print("Classification: ");
-        if (prediction > 0.5) {
-            Serial.println("SUSPICIOUS");
-            Serial.print("Confidence: ");
-            Serial.print((prediction - 0.5) * 200, 1);
-        } else {
-            Serial.println("NORMAL");
-            Serial.print("Confidence: ");
-            Serial.print((0.5 - prediction) * 200, 1);
-        }
-        Serial.println("%");
-    }
-    
-    Serial.println("\nSend 'r' to record and train, or 'c' for classification");
-}
-
-void recordAndTrain() {
-    Serial.println("Recording data...");
-    
-    if (signalProc.collectData()) {
-        Serial.println("Data collected, processing...");
-        signalProc.processData();
-        const float* features = signalProc.getFeatures();
-        Serial.println("Features extracted");
-        
-        // Display feature values for verification
-        Serial.println("\nFeature values:");
-        for(int i = 0; i < SignalConfig::FEATURE_BINS; i++) {
-            Serial.print("Freq ");
-            Serial.print(i);
-            Serial.print(": ");
-            Serial.println(features[i], 6);
-        }
-        
-        Serial.println("\nEnter label (0-1):");
-        Serial.println("0: Normal behavior");
-        Serial.println("1: Suspicious behavior");
-        
-        while(true) {
-            if(Serial.available() > 0) {
-                char input = Serial.read();
-                if(input == '0' || input == '1') {
-                    int label = input - '0';
-                    Serial.print("Training with label: ");
-                    Serial.println(label);
-                    
-                    NN.performLiveTraining(features, label);
-                    break;
-                }
-            }
-            delay(10);
-        }
-    }
-    
-    Serial.println("Training complete");
-    Serial.println("\nSend 'r' to record and train, or 'c' for classification");
-}
 
 void setup() {
     Serial.begin(9600);
@@ -105,27 +33,51 @@ void setup() {
     Serial.println("Initializing Neural Network...");
     NN.init(NNConfig::LAYERS, nullptr, NNConfig::NUM_LAYERS);
     Serial.println("Neural network initialized!");
-    Serial.println("Send 'r' to record and train, or 'c' for classification");
 }
 
 void loop() {
     bleComm.update();
     
-    if (Serial.available() > 0) {
-        char input = Serial.read();
-        Serial.print("Received command: ");
-        Serial.println(input);
+    // Handle BLE commands
+    switch (bleComm.getCurrentCommand()) {
+        case Command::START_CLASSIFICATION: {
+            Serial.println("Starting classification...");
+            
+            if (signalProc.collectData()) {
+                signalProc.processData();
+                const float* features = signalProc.getFeatures();
+                // Perform classification
+                float probabilities[3];
+                NN.getPredictionProbabilities(features, probabilities);
+                
+                // Send prediction probabilities
+                bleComm.sendPrediction(probabilities, 3);
+                
+                Serial.println("Classification complete");
+            }
+            bleComm.resetState();
+            break;
+        }
         
-        if (input == 'c' || input == 'C') {
-            performClassification();
+        case Command::START_TRAINING: {
+            Serial.println("Starting training...");
+            
+            if (signalProc.collectData()) {
+                signalProc.processData();
+                const float* features = signalProc.getFeatures();
+                // Get label from BLE characteristic
+                int8_t label = bleComm.getTrainingLabel();
+                if (label >= 0 && label <= 2) {
+                    NN.performLiveTraining(features, label);
+                    Serial.println("Training complete");
+                } else {
+                    Serial.println("Invalid label received");
+                }
+            }
+            bleComm.resetState();
+            break;
         }
-        else if (input == 'r' || input == 'R') {
-            recordAndTrain();
-        }
-    }
-    
-    // Handle BLE communication
-    if (bleComm.getCurrentCommand() == Command::GET_WEIGHTS) {
+        case Command::GET_WEIGHTS: {
         size_t numWeights = NN.getTotalWeights();
         float* currentWeights = new float[numWeights];
         
@@ -134,13 +86,15 @@ void loop() {
         }
         
         delete[] currentWeights;
-    }
-    else if (bleComm.getCurrentCommand() == Command::SET_WEIGHTS) {
+        break;
+      }
+        case Command::SET_WEIGHTS: {
         static float tempWeights[NNConfig::MAX_WEIGHTS];
         if (bleComm.receiveWeights(tempWeights, NNConfig::MAX_WEIGHTS)) {
             NN.updateNetworkWeights(tempWeights, NNConfig::MAX_WEIGHTS);
         }
+        break;
+      }
     }
-    
     delay(50);
 }
