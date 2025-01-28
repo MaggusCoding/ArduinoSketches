@@ -9,7 +9,9 @@ enum class Command {
     GET_WEIGHTS = 1,
     SET_WEIGHTS = 2,
     START_TRAINING = 3,
-    START_CLASSIFICATION = 4
+    START_CLASSIFICATION = 4,
+    START_INFERENCE_BENCHMARK = 5,
+    START_TRAINING_BENCHMARK = 6
 };
 
 class Communication {
