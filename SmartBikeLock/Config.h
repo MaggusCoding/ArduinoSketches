@@ -30,14 +30,14 @@ namespace NNConfig {
 
 // Signal Processing Configuration
 namespace SignalConfig {
-    constexpr unsigned int SAMPLES = 256;
+    constexpr unsigned int SAMPLES = 512;
     constexpr unsigned int SAMPLING_FREQ = 100;
     constexpr unsigned int SAMPLING_PERIOD_MS = 1000/SAMPLING_FREQ;
     constexpr unsigned int FEATURE_BINS = 8;
     constexpr unsigned int TOTAL_FEATURES = 11;  // 8 frequency bins + 3 statistical features
     
     // Frequency bands (Hz)
-    constexpr float FREQ_BANDS[] = {0, 5, 10, 15, 20, 25, 30, 40, 50};
+    constexpr float FREQ_BANDS[] = {0, 4.19, 8.38, 12.57, 16.75, 20.94, 25.13, 29.32, 33.5};
 }
 
 // BLE Communication Configuration
@@ -48,7 +48,6 @@ namespace BLEConfig {
     constexpr char CONTROL_CHAR_UUID[] = "19B10002-E8F2-537E-4F6C-D104768A1214";
     constexpr char LABEL_CHAR_UUID[] = "19B10003-E8F2-537E-4F6C-D104768A1214";
     constexpr char PREDICTION_CHAR_UUID[] = "19B10004-E8F2-537E-4F6C-D104768A1214";
-    constexpr char FEATURES_CHAR_UUID[] = "19B10005-E8F2-537E-4F6C-D104768A1214";
 }
 
 #endif

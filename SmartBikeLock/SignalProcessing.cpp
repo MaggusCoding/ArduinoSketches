@@ -1,6 +1,6 @@
 #include "SignalProcessing.h"
 
-const float SignalProcessing::freqBands[SignalConfig::FEATURE_BINS + 1] PROGMEM = {0, 5, 10, 15, 20, 25, 30, 40, 50};
+const float SignalProcessing::freqBands[SignalConfig::FEATURE_BINS + 1] PROGMEM = {0, 4.19, 8.38, 12.57, 16.75, 20.94, 25.13, 29.32, 33.5};
 
 SignalProcessing::SignalProcessing() 
     : FFT(vReal, vImag, SignalConfig::SAMPLES, SignalConfig::SAMPLING_FREQ), millisOld(0) {
