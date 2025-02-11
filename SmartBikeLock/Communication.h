@@ -26,10 +26,12 @@ public:
     void resetState();
     bool sendPrediction(const float* probabilities, size_t length);
     int8_t getTrainingLabel();
+    float* getTempBuffer() { return tempBuffer; }
 
 private:
     BLEService lockService;
-    BLECharacteristic weightsCharacteristic;
+    BLECharacteristic weightsReadCharacteristic;  // For sending FROM Arduino
+    BLECharacteristic weightsWriteCharacteristic; // For receiving TO Arduino
     BLECharacteristic controlCharacteristic;
     BLECharacteristic labelCharacteristic;
     BLECharacteristic predictionCharacteristic;

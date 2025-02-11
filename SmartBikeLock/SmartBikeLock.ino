@@ -1,14 +1,16 @@
 #include "Communication.h"
 #include "NeuralNetworkBikeLock.h"
 #include "SignalProcessing.h"
-#include "TimingBenchmark.h"
+//#include "TimingBenchmark.h"
 
 #define DEBUG // Uncomment this line if you want debug messages
 
 Communication bleComm;
 NeuralNetworkBikeLock NN;
 SignalProcessing signalProc;
-TimingBenchmark benchmark(NN, signalProc);
+//TimingBenchmark benchmark(NN, signalProc);
+
+
 
 void setup() {
     #ifdef DEBUG
@@ -16,7 +18,6 @@ void setup() {
     delay(1000);
     Serial.println("Starting setup...");
     #endif
-    
     if (!bleComm.begin()) {
         #ifdef DEBUG
         Serial.println("Failed to initialize BLE communication!");
@@ -26,11 +27,9 @@ void setup() {
         }
         #endif
     }
-    
     #ifdef DEBUG
     Serial.println("BLE initialized");
     #endif
-    
     if (!signalProc.begin()) {
         #ifdef DEBUG
         Serial.println("Failed to initialize IMU!");
@@ -44,12 +43,10 @@ void setup() {
     #ifdef DEBUG
     Serial.println("IMU initialized");
     #endif
-    
     #ifdef DEBUG
     Serial.println("Initializing Neural Network...");
     #endif
     NN.init(NNConfig::LAYERS, nullptr, NNConfig::NUM_LAYERS);
-    
     #ifdef DEBUG
     Serial.println("Neural network initialized!");
     #endif
@@ -63,7 +60,6 @@ void loop() {
             #ifdef DEBUG
             Serial.println("Starting classification...");
             #endif
-            
             if (signalProc.collectData()) {
                 signalProc.processData();
                 const float* features = signalProc.getFeatures();
@@ -71,7 +67,6 @@ void loop() {
                 // Perform classification
                 float probabilities[3];
                 NN. getPredictionProbabilities(features, probabilities);
-                
                 // Send prediction probabilities
                 bleComm.sendPrediction(probabilities, 3);
                 
@@ -82,17 +77,15 @@ void loop() {
             
             bleComm.resetState();
             break;
-        }
+          }
         
         case Command::START_TRAINING: {
             #ifdef DEBUG
             Serial.println("Starting training...");
             #endif
-            
             if (signalProc.collectData()) {
                 signalProc.processData();
                 const float* features = signalProc.getFeatures();
-                
                 // Get label from BLE characteristic
                 int8_t label = bleComm. getTrainingLabel();
                 if (label >= 0 && label <= 2) {
@@ -110,28 +103,25 @@ void loop() {
             
             bleComm.resetState();
             break;
-        }
+          }
         
         case Command::GET_WEIGHTS: {
-            size_t numWeights = NN. getTotalWeights();
-            float* currentWeights = new float[numWeights];
+            size_t numWeights = NN.getTotalWeights();
             
-            if (NN.getWeights(currentWeights, numWeights)) {
-                bleComm.sendWeights(currentWeights, numWeights);
+            // Use Communication's tempBuffer directly
+            if (NN.getWeights(bleComm.getTempBuffer(), numWeights)) {
+                bleComm.sendWeights(bleComm.getTempBuffer(), numWeights);
             }
-            
-            delete[] currentWeights;
             break;
-        }
-        
+          }
+                
         case Command::SET_WEIGHTS: {
-            static float tempWeights[NNConfig::MAX_WEIGHTS];
-            if (bleComm.receiveWeights(tempWeights, NNConfig::MAX_WEIGHTS)) {                          
-                NN.updateNetworkWeights(tempWeights, NNConfig::MAX_WEIGHTS);
+            if (bleComm.receiveWeights(bleComm.getTempBuffer(), NNConfig::MAX_WEIGHTS)) {                     
+                NN.updateNetworkWeights(bleComm.getTempBuffer(), NNConfig::MAX_WEIGHTS);
             }
             break;
-        }
-        case Command::START_INFERENCE_BENCHMARK: {
+          }
+       /* case Command::START_INFERENCE_BENCHMARK: {
               Serial.println("Starting inference benchmark...");
               benchmark.measureInferenceLatency();
               bleComm.resetState();
@@ -146,7 +136,7 @@ void loop() {
               }
               bleComm.resetState();
               break;
-          }
+          }*/
     }
     
     delay(50);

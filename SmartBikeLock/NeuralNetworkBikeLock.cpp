@@ -6,6 +6,9 @@
 NeuralNetworkBikeLock::NeuralNetworkBikeLock() : nn(nullptr), isInitialized(false) {
 }
 
+
+
+
 void NeuralNetworkBikeLock::init(const unsigned int* layer_, float* weights, const unsigned int& NumberOflayers) {
     Serial.println("Starting NN initialization...");
     if (!isInitialized) {
@@ -21,31 +24,13 @@ void NeuralNetworkBikeLock::init(const unsigned int* layer_, float* weights, con
         
         // If no weights provided, create random weights
         if (weights == nullptr) {
-            nn = new NeuralNetwork(layer_, NumberOflayers);
+            nn= new NeuralNetwork(layer_, NumberOflayers);
         } else {
             nn = new NeuralNetwork(layer_, weights, NumberOflayers);
         }
         
         isInitialized = true;
         Serial.println("Neural Network initialized successfully");
-        
-        // Print layer configuration
-        Serial.println("Layer configuration:");
-        for(unsigned int i = 0; i < numLayers; i++) {
-            Serial.print(layers[i]);
-            if(i < numLayers - 1) Serial.print(" -> ");
-        }
-        Serial.println();
-        
-        // Verify initialization with a test forward pass
-        float testInput[SignalConfig::TOTAL_FEATURES] = {0};
-        float* testOutput = nn->FeedForward(testInput);
-        Serial.println("Test forward pass results:");
-        for(unsigned int i = 0; i < layers[numLayers-1]; i++) {
-            Serial.print(testOutput[i], 6);
-            Serial.print(" ");
-        }
-        Serial.println();
     } else {
         Serial.println("Neural Network already initialized");
     }
@@ -55,7 +40,6 @@ void NeuralNetworkBikeLock::performLiveTraining(const float* features, int label
     if (!isInitialized || label < 0 || label > 2) return;  // Changed to check for binary labels
     
     Serial.println("Starting training process...");
-    
     float expectedOutput[3] = {0.0f, 0.0f, 0.0f};
     expectedOutput[label] = 1.0f;
     Serial.println("Created one-hot encoded output");
@@ -65,7 +49,6 @@ void NeuralNetworkBikeLock::performLiveTraining(const float* features, int label
         if(i < 2) Serial.print(", ");
     }
     Serial.println("]");
-    
     Serial.println("Performing backpropagation...");
     nn->FeedForward(features);
     nn->BackProp(expectedOutput);  // Pass the array directly

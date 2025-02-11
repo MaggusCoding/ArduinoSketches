@@ -18,7 +18,7 @@ private:
     NeuralNetworkBikeLock& nn;
     SignalProcessing& signalProc;
     
-    static const int NUM_ITERATIONS = 50;
+    static const int NUM_ITERATIONS = 10;
     
 public:
     TimingBenchmark(NeuralNetworkBikeLock& nn_, SignalProcessing& signalProc_) 

@@ -2,7 +2,10 @@
 
 Communication::Communication() : 
     lockService(BLEConfig::SERVICE_UUID),
-    weightsCharacteristic(BLEConfig::WEIGHTS_CHAR_UUID, BLERead | BLEWrite | BLENotify, sizeof(float) * 16),
+    // Characteristic for sending weights FROM Arduino TO Python
+    weightsReadCharacteristic(BLEConfig::WEIGHTS_READ_CHAR_UUID, BLERead | BLENotify, sizeof(float) * 16),
+    // Characteristic for receiving weights FROM Python TO Arduino
+    weightsWriteCharacteristic(BLEConfig::WEIGHTS_WRITE_CHAR_UUID, BLEWrite, sizeof(float) * 16),
     controlCharacteristic(BLEConfig::CONTROL_CHAR_UUID, BLERead | BLEWrite, sizeof(uint8_t)),
     labelCharacteristic(BLEConfig::LABEL_CHAR_UUID, BLERead | BLEWrite, sizeof(int8_t)),
     predictionCharacteristic(BLEConfig::PREDICTION_CHAR_UUID, BLERead | BLENotify, sizeof(float) * 3),
@@ -18,11 +21,13 @@ bool Communication::begin() {
         Serial.println("Failed to initialize BLE!");
         return false;
     }
-
+    // Add after BLE.begin()
+    BLE.setConnectionInterval(0x0006, 0x0006); // Min and max intervals, 7.5ms (0x0006 * 1.25ms)
     BLE.setLocalName(BLEConfig::DEVICE_NAME);
     BLE.setAdvertisedService(lockService);
     
-    lockService.addCharacteristic(weightsCharacteristic);
+    lockService.addCharacteristic(weightsReadCharacteristic);
+    lockService.addCharacteristic(weightsWriteCharacteristic);
     lockService.addCharacteristic(controlCharacteristic);
     lockService.addCharacteristic(labelCharacteristic);
     lockService.addCharacteristic(predictionCharacteristic);
@@ -87,24 +92,18 @@ bool Communication::sendWeights(const float* weights, size_t length) {
         return false;
     }
 
-    const size_t chunk_size = 16;  // Number of floats per chunk
+    const size_t chunk_size = 16;
     const size_t chunk_bytes = chunk_size * sizeof(float);
-    uint8_t chunk[chunk_bytes];
     
     while (currentSendPos < length) {
         size_t floatsToSend = min(chunk_size, length - currentSendPos);
         size_t bytesToSend = floatsToSend * sizeof(float);
         
-        memcpy(chunk, &weights[currentSendPos], bytesToSend);
+        memcpy(tempBuffer, &weights[currentSendPos], bytesToSend);
         
-        if (weightsCharacteristic.writeValue(chunk, bytesToSend)) {
-            Serial.print("Sent weights chunk: ");
-            Serial.print(currentSendPos);
-            Serial.print(" to ");
-            Serial.println(currentSendPos + floatsToSend - 1);
-            
+        if (weightsReadCharacteristic.writeValue(reinterpret_cast<uint8_t*>(tempBuffer), bytesToSend)) {
             currentSendPos += floatsToSend;
-            delay(80);  // Small delay between chunks
+            delay(10);
             
             if (currentSendPos >= length) {
                 currentSendPos = 0;
@@ -117,7 +116,6 @@ bool Communication::sendWeights(const float* weights, size_t length) {
             return false;
         }
     }
-    
     return false;
 }
 
@@ -127,48 +125,33 @@ bool Communication::receiveWeights(float* buffer, size_t length) {
         return false;
     }
     
-    if (weightsCharacteristic.written()) {
-        const size_t max_chunk_size = 16 * sizeof(float);  // 16 floats per chunk
+    if (weightsWriteCharacteristic.written()) {
+        const size_t max_chunk_size = 16 * sizeof(float);
         uint8_t chunk[max_chunk_size];
-        int bytesRead = weightsCharacteristic.readValue(chunk, sizeof(chunk));
+        int bytesRead = weightsWriteCharacteristic.readValue(chunk, sizeof(chunk));
         
         int numFloats = bytesRead / sizeof(float);
         
-        Serial.print("Received chunk of ");
-        Serial.print(bytesRead);
-        Serial.print(" bytes (");
-        Serial.print(numFloats);
-        Serial.println(" floats)");
-        
         if (currentBufferPos + numFloats > length) {
-            Serial.println("Error: Receiving more weights than expected");
+            Serial.println("Error: Buffer overflow");
             currentBufferPos = 0;
             return false;
         }
         
-        // Process each float in the chunk
-        for (int i = 0; i < numFloats; i++) {
-            float value;
-            memcpy(&value, &chunk[i * sizeof(float)], sizeof(float));
-            
-            tempBuffer[currentBufferPos] = value;
-            
-            if (currentBufferPos % 16 == 0) {  // Print progress every 16 weights
-                Serial.print("Progress: ");
-                Serial.print(currentBufferPos);
-                Serial.print("/");
-                Serial.println(length);
-            }
-            
-            currentBufferPos++;
-            
-            if (currentBufferPos == length) {
-                memcpy(buffer, tempBuffer, length * sizeof(float));
-                currentBufferPos = 0;
-                currentCommand = Command::NONE;
-                Serial.println("Successfully received all weights");
-                return true;
-            }
+        memcpy(&buffer[currentBufferPos], chunk, bytesRead);
+        currentBufferPos += numFloats;
+        
+        if (currentBufferPos % 32 == 0) {
+            Serial.print("Received weights: ");
+            Serial.print(currentBufferPos);
+            Serial.print("/");
+            Serial.println(length);
+        }
+        
+        if (currentBufferPos >= length) {
+            currentBufferPos = 0;
+            Serial.println("Weight transfer complete");
+            return true;
         }
     }
     return false;
