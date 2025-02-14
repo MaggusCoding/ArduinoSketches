@@ -3,9 +3,9 @@
 Communication::Communication() : 
     lockService(BLEConfig::SERVICE_UUID),
     // Characteristic for sending weights FROM Arduino TO Python
-    weightsReadCharacteristic(BLEConfig::WEIGHTS_READ_CHAR_UUID, BLERead | BLENotify, sizeof(float) * 16),
+    weightsReadCharacteristic(BLEConfig::WEIGHTS_READ_CHAR_UUID, BLERead | BLENotify, sizeof(float) * BLEConfig::CHUNK_SIZE),
     // Characteristic for receiving weights FROM Python TO Arduino
-    weightsWriteCharacteristic(BLEConfig::WEIGHTS_WRITE_CHAR_UUID, BLEWrite, sizeof(float) * 16),
+    weightsWriteCharacteristic(BLEConfig::WEIGHTS_WRITE_CHAR_UUID, BLEWrite, sizeof(float) * BLEConfig::CHUNK_SIZE),
     controlCharacteristic(BLEConfig::CONTROL_CHAR_UUID, BLERead | BLEWrite, sizeof(uint8_t)),
     labelCharacteristic(BLEConfig::LABEL_CHAR_UUID, BLERead | BLEWrite, sizeof(int8_t)),
     predictionCharacteristic(BLEConfig::PREDICTION_CHAR_UUID, BLERead | BLENotify, sizeof(float) * 3),
@@ -22,7 +22,7 @@ bool Communication::begin() {
         return false;
     }
     // Add after BLE.begin()
-    BLE.setConnectionInterval(0x0006, 0x0006); // Min and max intervals, 7.5ms (0x0006 * 1.25ms)
+    //BLE.setConnectionInterval(0x0006, 0x0006); // Min and max intervals, 7.5ms (0x0006 * 1.25ms)
     BLE.setLocalName(BLEConfig::DEVICE_NAME);
     BLE.setAdvertisedService(lockService);
     
@@ -92,7 +92,7 @@ bool Communication::sendWeights(const float* weights, size_t length) {
         return false;
     }
 
-    const size_t chunk_size = 16;
+    const size_t chunk_size = BLEConfig::CHUNK_SIZE;
     const size_t chunk_bytes = chunk_size * sizeof(float);
     
     while (currentSendPos < length) {
@@ -103,7 +103,7 @@ bool Communication::sendWeights(const float* weights, size_t length) {
         
         if (weightsReadCharacteristic.writeValue(reinterpret_cast<uint8_t*>(tempBuffer), bytesToSend)) {
             currentSendPos += floatsToSend;
-            delay(10);
+            delay(20);
             
             if (currentSendPos >= length) {
                 currentSendPos = 0;
@@ -126,7 +126,7 @@ bool Communication::receiveWeights(float* buffer, size_t length) {
     }
     
     if (weightsWriteCharacteristic.written()) {
-        const size_t max_chunk_size = 16 * sizeof(float);
+        const size_t max_chunk_size = BLEConfig::CHUNK_SIZE * sizeof(float);
         uint8_t chunk[max_chunk_size];
         int bytesRead = weightsWriteCharacteristic.readValue(chunk, sizeof(chunk));
         

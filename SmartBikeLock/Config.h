@@ -51,6 +51,7 @@ namespace BLEConfig {
     constexpr char CONTROL_CHAR_UUID[] = "19B10002-E8F2-537E-4F6C-D104768A1214";
     constexpr char LABEL_CHAR_UUID[] = "19B10003-E8F2-537E-4F6C-D104768A1214";
     constexpr char PREDICTION_CHAR_UUID[] = "19B10004-E8F2-537E-4F6C-D104768A1214";
+    constexpr unsigned int CHUNK_SIZE = 30;
 }
 
 #endif
